@@ -199,25 +199,40 @@ public class ClientHandel {
 
         SearchResponse response = client.prepareSearch().setIndices(index).setTypes(table).get();
         int n = (int) response.getHits().totalHits();
-        int size = 1200;
-        int count = 0;
+        int size = 10000;
         List<String> alarmList = new ArrayList<String>();
         for (int i = 0; i < n; ) {
             response = client.prepareSearch().setIndices(index).setTypes(table).setScroll(TimeValue.timeValueMinutes(1)).setFrom(i).setSize(size).get();
             i += size;
             SearchHits searchHits = response.getHits();
+            int count = 10000;
+            long start = System.currentTimeMillis();
             for (SearchHit hit : searchHits) {
-                logger.info("SearchHit======:" + hit.getSourceAsString());
-                alarmList.add(hit.getSourceAsString());
-                if (count++ > 1000) {
-                    count = 0;
-                    //启动线程池，批量提交
-                    ThreadExecutorsAlarm.exec(alarmList, client, "report_alarm_6", "alarm");
-                    alarmList.clear();
+
+                JSONObject jsonObject = JSONObject.parseObject(hit.getSourceAsString());
+                String imei=jsonObject.getString("imei");
+                String user_id=jsonObject.getString("user_id");
+                String id=jsonObject.getString("id");
+
+                // 查询关键字
+                QueryBuilder mpq1 = QueryBuilders
+                        .matchPhraseQuery("id",id);
+                QueryBuilder mpq2 = QueryBuilders
+                        .matchPhraseQuery("imei",imei);
+                QueryBuilder qb2 = QueryBuilders.boolQuery()
+                        .must(mpq1)
+//                .must(mpq3)
+                        .must(mpq2);
+                SearchResponse response2=client.prepareSearch().setIndices(index).setTypes(table).setScroll(TimeValue.timeValueMinutes(5)).setSize(size).setQuery(qb2).get();
+                SearchHits searchHits2 = response2.getHits();
+                    logger.info("imei:"+imei+"============id:"+id);
+                    count--;
+                    if(count==0){
+                        break;
+                    }
                 }
-            }
-        }
-    }
+                 logger.info("userTime:"+(System.currentTimeMillis()-start));
+    }}
 
 
     /**
@@ -225,18 +240,29 @@ public class ClientHandel {
      */
     public List<String> queryByFilter(Client client, String index, String table) {
         // 查询关键字
-        QueryBuilder queryBuilder = QueryBuilders.matchQuery("id", "5127850d9d2a48bebd1310fcdc4b159e");
-        SearchResponse response = client.prepareSearch().setIndices(index).setTypes(table).setQuery(queryBuilder).get();
+        QueryBuilder mpq1 = QueryBuilders
+                .matchPhraseQuery("user_id","645945");
+        QueryBuilder mpq2 = QueryBuilders
+                .matchPhraseQuery("imei","868120185682520");
+        QueryBuilder mpq3 = QueryBuilders
+                .matchPhraseQuery("create_time","2018-06-22 13:02:06");
+        QueryBuilder qb2 = QueryBuilders.boolQuery()
+                .must(mpq1);
+//                .must(mpq3)
+//                .must(mpq2);
+        SearchResponse response = client.prepareSearch().setIndices(index).setTypes(table).setQuery(qb2).get();
         int n = (int) response.getHits().totalHits();
         System.out.println(n);
-        int size = 100;
+        int size = 10000;
         List<String> retList = new ArrayList<String>();
-        response = client.prepareSearch().setIndices(index).setTypes(table).setScroll(TimeValue.timeValueMinutes(5)).setSize(n).setQuery(queryBuilder).get();
+        long start = System.currentTimeMillis();
+        response = client.prepareSearch().setIndices(index).setTypes(table).setScroll(TimeValue.timeValueMinutes(5)).setSize(size).setQuery(qb2).get();
         SearchHits searchHits = response.getHits();
         for (SearchHit hit : searchHits) {
             logger.info("hit.getSourceAsString()====" + hit.getSourceAsString());
             retList.add(hit.getSourceAsString());
         }
+        logger.info("useTime==："+(System.currentTimeMillis()-start));
         return retList;
     }
 
@@ -244,22 +270,17 @@ public class ClientHandel {
     public static void main(String[] args) throws Exception {
 
 
-
-
-
-
-
-
-
         ClientHandel javaESTest = new ClientHandel();;
         ClientUtil clientUtil = new ClientUtil();
         Client client = clientUtil.getClient();
 //        //System.out.println("List========:"+javaESTest.searchAll(client,"report_alarm_7","alarm"));
 //        //System.out.println("List========:"+javaESTest.searchAll(client,"tracker_201807","alarm"));
-//        //javaESTest.queryByFilter(client,"tracker_test","alarm");
+           //javaESTest.queryByFilter(client,"report_alarm_6","alarm");
+        javaESTest.searchAndWrite(client,"report_alarm_6","alarm");
           //javaESTest.searchAndInsertDevice(client);
         //javaESTest.searchAndInsertDevice(client,"report_alarm_6","device");
-          javaESTest.searchAndInsertAlarm(client, "report_alarm_6", "alarm");
+          //javaESTest.searchAndInsertAlarm(client, "report_alarm_6", "alarm");
+            //javaESTest.searchAndWrite(client, "report_alarm_6", "alarm");
        //javaESTest.queryByFilter(client,"tracker_201807", "alarm");
     }
 }

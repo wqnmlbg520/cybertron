@@ -6,6 +6,7 @@ import com.alibaba.fastjson.JSONObject;
 import com.jimi.cybertron.elasticsearch.client.ClientUtil;
 import com.jimi.cybertron.elasticsearch.thread.ThreadExecutorsAlarm;
 import com.jimi.cybertron.elasticsearch.thread.ThreadExecutorsDevice;
+import com.jimi.cybertron.elasticsearch.thread.ThreadExecutors_test;
 import com.jimi.cybertron.elasticsearch.util.RandomDateUtil;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.client.Client;
@@ -36,8 +37,7 @@ import java.util.Map;
  * @author chenx
  */
 public class ClientHandel_test {
-
-    private Logger logger = LoggerFactory.getLogger(ClientHandel_test.class);
+    private Logger logger = LoggerFactory.getLogger(ClientHandel.class);
 
     /**
      * 获取连接
@@ -53,7 +53,7 @@ public class ClientHandel_test {
         return client;
     }
 
-    public void searchAndInsertDevice(Client client) throws Exception  {
+    public void bingFaChaxunTest(Client client) throws Exception  {
         try {
             int count = 0;
             Connection con = null;
@@ -62,36 +62,26 @@ public class ClientHandel_test {
             con = (Connection) DriverManager.getConnection("jdbc:mysql://172.16.10.113:3306/test?useUnicode=true&characterEncoding=utf8",
                     "root", "123456");
             Statement ps = (Statement) con.createStatement();
-            String sql = "select *  from user_relation";
+            String sql = "select * from user_relation LIMIT 300000 ,5000 ;";
             ResultSet rs = ps.executeQuery(sql);
             List<String> deviceList = new ArrayList<String>();
+            long start= System.currentTimeMillis();
             while (rs.next()) {
                 // 循环输出结果集
                 JSONObject jsonObject =new JSONObject();
-                jsonObject.put("user_parent_id",rs.getString("current_user_parent_id"));
                 jsonObject.put("user_id",Integer.parseInt(rs.getString("user_id")));
-                String platform_expiration_time=rs.getString("platform_expiration_time");
-                jsonObject.put("platform_expiration_time",platform_expiration_time.substring(0,19));
-                jsonObject.put("enable_flag",rs.getString("enable_flag"));
-                jsonObject.put("imei",rs.getString("imei"));
-                jsonObject.put("mc_type",rs.getString("mc_type"));
-                jsonObject.put("app_id",rs.getString("app_id"));
-                jsonObject.put("index_name","");
-                jsonObject.put("repay_flag",rs.getString("repay_flag"));
-               // jsonObject.put("alarms","");
+                String imei=rs.getString("imei");
+                jsonObject.put("imei",imei);
                 String result = JSON.toJSONString(jsonObject);
                 deviceList.add(result);
-
-
                 if (count++ > 1000) {
                     count = 0;
                     //启动线程池，批量提交
-                    ThreadExecutorsDevice.exec(deviceList, client, "report_alarm_6", "device");
+                    ThreadExecutors_test.exec(deviceList, client, "report_alarm_6", "alarm");
                     deviceList.clear();
                 }
-
-
             }
+            logger.info("userTime:"+(System.currentTimeMillis()-start));
         } catch (Exception e) {
             System.out.println("MYSQL error" + e.getMessage());
         }
@@ -106,20 +96,21 @@ public class ClientHandel_test {
         int size = 10000;
         int count = 0;
         List<String> retList = new ArrayList<String>();
-        for(int total=0;total<6;total++) {
+        for(int total=4;total<5;total++) {
             for (int i = 0; i < n; ) {
                 response = client.prepareSearch().setIndices(index).setTypes(table).setScroll(TimeValue.timeValueMinutes(1)).setFrom(i).setSize(size).get();
                 i += size;
                 SearchHits searchHits = response.getHits();
                 for (SearchHit hit : searchHits) {
                     JSONObject jsonObject = JSONObject.parseObject(hit.getSourceAsString());
-                   jsonObject.put("create_time", RandomDateUtil.randomDate("2018-06-01", "2018-06-30"));
+                    String imei=jsonObject.get("imei").toString()+total;
+                    jsonObject.put("imei", imei);
+                    jsonObject.put("create_time", RandomDateUtil.randomDate("2018-06-01", "2018-06-30"));
                     jsonObject.put("push_time", RandomDateUtil.randomDate("2018-06-01", "2018-06-30"));
-                    //jsonObject.put("create_time", "2018-06-29 15:19:25");
-                    //jsonObject.put("push_time", "2018-06-11 06:14:17");
                     String result = JSON.toJSONString(jsonObject);
-                    //logger.info("result======"+result);
+                    logger.info("imei============:"+imei);
                     retList.add(result);
+                    //logger.info("alarm_06_result");
                     if (count++ > 10000) {
                         count = 0;
                         //启动线程池，批量提交
@@ -130,6 +121,40 @@ public class ClientHandel_test {
             }
         }
     }
+
+
+    /**
+     * 查询全部内容，多线程插入(从6库赋值device)
+     **/
+    public void searchAndInsertDevice(Client client, String index, String table) throws InterruptedException {
+        SearchResponse response = client.prepareSearch().setIndices(index).setTypes(table).get();
+        int n = (int) response.getHits().totalHits();
+        int size = 10000;
+        int count = 0;
+        List<String> retList = new ArrayList<String>();
+        for(int total=1;total<5;total++) {
+            for (int i = 0; i < n; ) {
+                response = client.prepareSearch().setIndices(index).setTypes(table).setScroll(TimeValue.timeValueMinutes(1)).setFrom(i).setSize(size).get();
+                i += size;
+                SearchHits searchHits = response.getHits();
+                for (SearchHit hit : searchHits) {
+                    JSONObject jsonObject = JSONObject.parseObject(hit.getSourceAsString());
+                    String imeiExchange=jsonObject.get("imei").toString()+total;
+                    jsonObject.put("imei", imeiExchange);
+                    logger.info("imei========:"+imeiExchange);
+                    String result = JSON.toJSONString(jsonObject);
+                    retList.add(result);
+                    if (count++ > 10000) {
+                        count = 0;
+                        //启动线程池，批量提交
+                        ThreadExecutorsDevice.exec(retList, client, "report_alarm_6", "device");
+                        retList.clear();
+                    }
+                }
+            }
+        }
+    }
+
 
     /**
      * 从文件逐行读取写入es
@@ -170,25 +195,40 @@ public class ClientHandel_test {
 
         SearchResponse response = client.prepareSearch().setIndices(index).setTypes(table).get();
         int n = (int) response.getHits().totalHits();
-        int size = 1200;
-        int count = 0;
+        int size = 10000;
         List<String> alarmList = new ArrayList<String>();
         for (int i = 0; i < n; ) {
             response = client.prepareSearch().setIndices(index).setTypes(table).setScroll(TimeValue.timeValueMinutes(1)).setFrom(i).setSize(size).get();
             i += size;
             SearchHits searchHits = response.getHits();
+            int count = 10000;
+            long start = System.currentTimeMillis();
             for (SearchHit hit : searchHits) {
-                logger.info("SearchHit======:" + hit.getSourceAsString());
-                alarmList.add(hit.getSourceAsString());
-                if (count++ > 1000) {
-                    count = 0;
-                    //启动线程池，批量提交
-                    ThreadExecutorsAlarm.exec(alarmList, client, "report_alarm_6", "alarm");
-                    alarmList.clear();
+
+                JSONObject jsonObject = JSONObject.parseObject(hit.getSourceAsString());
+                String imei=jsonObject.getString("imei");
+                String user_id=jsonObject.getString("user_id");
+                String id=jsonObject.getString("id");
+
+                // 查询关键字
+                QueryBuilder mpq1 = QueryBuilders
+                        .matchPhraseQuery("id",id);
+                QueryBuilder mpq2 = QueryBuilders
+                        .matchPhraseQuery("imei",imei);
+                QueryBuilder qb2 = QueryBuilders.boolQuery()
+                        .must(mpq1)
+//                .must(mpq3)
+                        .must(mpq2);
+                SearchResponse response2=client.prepareSearch().setIndices(index).setTypes(table).setScroll(TimeValue.timeValueMinutes(5)).setSize(size).setQuery(qb2).get();
+                SearchHits searchHits2 = response2.getHits();
+                logger.info("imei:"+imei+"============id:"+id);
+                count--;
+                if(count==0){
+                    break;
                 }
             }
-        }
-    }
+            logger.info("userTime:"+(System.currentTimeMillis()-start));
+        }}
 
 
     /**
@@ -196,19 +236,52 @@ public class ClientHandel_test {
      */
     public List<String> queryByFilter(Client client, String index, String table) {
         // 查询关键字
-        QueryBuilder queryBuilder = QueryBuilders.matchQuery("create_time", "2018-06-08 00:49:21");
-        SearchResponse response = client.prepareSearch().setIndices(index).setTypes(table).setQuery(queryBuilder).get();
+        QueryBuilder mpq1 = QueryBuilders
+                .matchPhraseQuery("user_id","645945");
+        QueryBuilder mpq2 = QueryBuilders
+                .matchPhraseQuery("imei","868120185682520");
+        QueryBuilder mpq3 = QueryBuilders
+                .matchPhraseQuery("create_time","2018-06-22 13:02:06");
+        QueryBuilder qb2 = QueryBuilders.boolQuery()
+                .must(mpq1);
+//                .must(mpq3)
+//                .must(mpq2);
+        SearchResponse response = client.prepareSearch().setIndices(index).setTypes(table).setQuery(qb2).get();
         int n = (int) response.getHits().totalHits();
         System.out.println(n);
-        int size = 100;
+        int size = 10000;
         List<String> retList = new ArrayList<String>();
-        response = client.prepareSearch().setIndices(index).setTypes(table).setScroll(TimeValue.timeValueMinutes(5)).setSize(n).setQuery(queryBuilder).get();
+        long start = System.currentTimeMillis();
+        response = client.prepareSearch().setIndices(index).setTypes(table).setScroll(TimeValue.timeValueMinutes(5)).setSize(size).setQuery(qb2).get();
         SearchHits searchHits = response.getHits();
         for (SearchHit hit : searchHits) {
             logger.info("hit.getSourceAsString()====" + hit.getSourceAsString());
             retList.add(hit.getSourceAsString());
         }
+        logger.info("useTime==："+(System.currentTimeMillis()-start));
         return retList;
+    }
+
+    /**
+     * 查询全部内容，多线程插入(从6库赋值device)
+     **/
+    public void searchAndInsertDevice2(Client client, String index, String table) throws InterruptedException {
+        SearchResponse response = client.prepareSearch().setIndices(index).setTypes(table).get();
+        int n = (int) response.getHits().totalHits();
+        int size = 10000;
+        int count = 0;
+        List<String> retList = new ArrayList<String>();
+        for(int total=1;total<5;total++) {
+            for (int i = 0; i < n; ) {
+                response = client.prepareSearch().setIndices(index).setTypes(table).setScroll(TimeValue.timeValueMinutes(1)).setFrom(i).setSize(size).get();
+                i += size;
+                SearchHits searchHits = response.getHits();
+                for (SearchHit hit : searchHits) {
+
+                   logger.info("count:"+count++);
+                }
+            }
+        }
     }
 
 
@@ -218,19 +291,12 @@ public class ClientHandel_test {
 
 
 
-
-
-
-
-        ClientHandel_test javaESTest = new ClientHandel_test();
+        ClientHandel_test javaESTest = new ClientHandel_test();;
         ClientUtil clientUtil = new ClientUtil();
         Client client = clientUtil.getClient();
-//        //System.out.println("List========:"+javaESTest.searchAll(client,"report_alarm_7","alarm"));
-//        //System.out.println("List========:"+javaESTest.searchAll(client,"tracker_201807","alarm"));
-           javaESTest.queryByFilter(client,"report_alarm_6","alarm");
-          //javaESTest.searchAndInsertDevice(client);
-          //javaESTest.searchAndInsertAlarm(client, "tracker_201807", "alarm");
-        //javaESTest.searchAndInsertAlarm(client, "tracker_201807", "alarm");
-       //javaESTest.searchAndInsert(client);
+
+        javaESTest.searchAndInsertDevice2(client,"report_alarm_6","device");
+
+
     }
 }

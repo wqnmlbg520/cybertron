@@ -128,8 +128,7 @@ public class ClientHandel_7 {
             }
         }
     }
-
-
+    
     /**
      * 查询全部内容，多线程插入(从6库赋值device)
      **/
